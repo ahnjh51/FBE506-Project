@@ -1,0 +1,1318 @@
+
+---
+title: "FBE 506 Quantiative Analysis"
+author: "Jaehyun Ahn"
+date: '2022-11-09'
+output:
+  html_document: default
+---
+This project deals with applying all the concepts learned in FBE 506 as much as possible. First, we will import the necessary libraries to start our quantitative analysis.
+
+```{r}
+#Import Libraries
+library(tidyverse, quietly = TRUE) 
+library(quantmod)
+library(tidyquant)
+library(PortfolioAnalytics)
+library(PerformanceAnalytics)
+library(timetk)
+library(corrplot)
+library(GGally)
+library(plotly)
+library(DT)
+library(Metrics)
+library(forecast)
+
+```
+
+Now, we are going to import several famous stocks from Yahoo Finance and look at their prices using tidyquant package.
+
+```{r}
+#Stock selection process
+#Analyze multiple stocks
+#Create symbols
+symbols.a <- c("AMD","NVDA","MSFT","KO","PEP","AMZN","AAPL","ET","NFLX","NKE",
+             "DIS","WMT","ADBE","SPY")
+
+#Download stock data using tidyquant
+stocks.prices.a <-  tq_get(symbols.a,get  = "stock.prices",
+                           from = "2015-01-01",
+                           to = "2019-12-31") %>% group_by(symbol)
+
+head(stocks.prices.a)
+
+```
+
+We see that the data is imported properly. Differently from quantmod, tidyquant is a package that imports stock prices from yahoo finance in a tibble format, which helps visualizing the data more easily by using ggplot2 package, while quantmod import data in a xts format.
+
+We have the price data, so we are going to code to get the monthly returns for each stocks to calculate returns and risks for each stock.
+
+```{r}
+#Compute monthly returns of the multiple stocks
+multpl_stock_monthly_returns.a <- stocks.prices.a %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'returns')
+
+#Computing monthly risk & return for each year
+p.a <- multpl_stock_monthly_returns.a%>%
+  mutate(year=year(date)) %>%
+  group_by(symbol,year) %>%
+  summarise(Return = mean(returns),
+            Risk = sd(returns))
+```
+# 1. Stock Selection 
+
+Five stocks will be selected by comparing the overall risk and return of the stocks. Thus, stocks that had higher risks, but lower returns were not considered as investment and only the ones with unique risk and return were considered as an investment. We will start with visualizing multiple stocks' monthly risk and return for each year.
+
+```{r}
+#Visualize monthly risk & return for each year
+p.1 <- ggplot(p.a, aes(Risk, Return, color = symbol)) +
+  geom_point(aes(frame = year, ids = symbol), size = 3) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(text=element_text(size = 16, family="Arial")) +
+  ggtitle("Risk Return Plot By Calendar Year")
+
+ggplotly(p.1) %>% animation_opts(1000, easing="elastic", redraw = FALSE)
+
+```
+
+For simpler analysis, we will visualize the overall risk and return from 2015 to 2019.
+```{r}
+#Compute 5 year risk & return
+p.b <- multpl_stock_monthly_returns.a %>%
+  group_by(symbol) %>%
+  summarise(Return = mean(returns),
+            Risk = sd(returns))
+
+#Visualize 5year risk & return
+p.2 <- ggplot(p.b, aes(Risk, Return, color = symbol)) +
+  geom_point(stat='identity', size = 4, show.legend  = TRUE)+
+  scale_x_continuous(labels = scales::percent) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(text=element_text(size = 16, family="Arial")) +
+  ggtitle("Total Risk Return Plot")
+ggplotly(p.2) %>% animation_opts(500, easing='elastic',redraw = FALSE)
+```
+
+Now, we see the overall risk % return of the stock. By using ggplotly, we can point to the visualized data and directly see each stock's performance figure and compare it with different stocks.
+
+From the scatter plot, we can see that some stocks have lower risks but offer higher return. Thus, we will create a portfolio with, PEP, MSFT, AMZN, NVDA, and  AMD. Before we go over any deep analysis, we will implement several basic quantitative analysis regarding stocks' performance
+
+### 1-a. Stock prices data
+```{r}
+#Create a portfolio with PEP, MSFT, AMZN, NCDA, AMD
+symbols <- c('AMD','AMZN','MSFT', 'NVDA', 'PEP')
+stocks.prices <-  tq_get(symbols,get  = "stock.prices",
+                         from = "2015-01-01",
+                         to = "2019-12-31") %>% group_by(symbol)
+datatable(stocks.prices)
+```
+
+### 1-b Charting stock prices with line graph #1
+
+```{r}
+#Chart stock prices
+p.3 <- stocks.prices %>%
+  ggplot(aes(x = date, y = adjusted, color = symbol)) +
+  theme_tq() +
+  geom_line() +
+  ylab('Stock Prices') + xlab('Date') +
+  ggtitle("Price chart for multiple stocks")
+ggplotly(p.3)
+```
+
+### 1-c Charting stock prices with line graph #2
+```{r}
+#Charting stock prices #2
+stocks.prices %>%
+  ggplot(aes(x = date, y = adjusted)) +
+  geom_line() +
+  facet_wrap(~symbol, scales = "free_y") +  # facet_wrap is used to make diff frames
+  theme_tq() +       # using a new theme
+  labs(x = "Date", y = "Price") +
+  ggtitle("Price chart for stocks")
+```
+
+### 1-d Charting stocks' monthly return 
+```{r}
+#Computing stock returns for our portfolio
+multpl_stock_monthly_returns <- stocks.prices %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'returns')
+
+#Charting stock returns
+multpl_stock_monthly_returns %>%
+  select(symbol,date,returns) %>%
+  ggplot(aes(x=date,y=returns,col=symbol)) +
+  scale_y_continuous(labels = scales::percent,
+                     breaks = seq(-0.5,0.75,0.1)) +
+  geom_bar(stat='identity') +
+  theme_tq() +
+  ggtitle('Monthly Return')+
+  facet_wrap(~symbol)
+```
+
+### 1-e Charing stocks' return in box plot
+```{r}
+#Charting monthly returns using box plot
+p.4 <- multpl_stock_monthly_returns %>% 
+  ggplot(aes(symbol, returns)) + 
+  geom_boxplot(aes(color=symbol)) + 
+  theme_tq() +
+  labs(x="symbols", y="returns")
+ggplotly(p.4)
+```
+
+As we can see from the return graphs, it seems that AMD has the highest volatility while PEP has the lowest volatility.For deeper analysis regarding risk & return, we are going to calculate the monthly risk & return and visualize it in a bar graph
+
+### 1-f Stock's monthly risk % return
+
+```{r}
+#Compare monthly mean returns for each stocks
+p.5 <- multpl_stock_monthly_returns%>%
+  mutate(year=year(date)) %>%
+  group_by(symbol,year) %>%
+  summarise(mean = mean(returns),
+            sd = sd(returns)) %>%
+  ggplot(aes(x = year, y = mean, fill = symbol)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  scale_y_continuous(breaks = seq(-0.1,0.4,0.02),
+                     labels = scales::percent) +
+  scale_x_continuous(breaks = seq(2012,2022,1)) +
+  labs(x = "Year", y = "Mean Returns") +
+  theme_tq() +
+  theme(legend.position = "top") +
+  scale_fill_brewer(palette="Paired") + theme_minimal() +
+  ggtitle("Monthly Mean returns")
+ggplotly(p.5)
+```
+```{r}
+#Compare monthly risk for each stock
+p.6 <- multpl_stock_monthly_returns%>%
+  mutate(year=year(date)) %>%
+  group_by(symbol,year) %>%
+  summarise(mean = mean(returns),
+            sd = sd(returns)) %>%
+  ggplot(aes(x = year, y = sd, fill = symbol)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  scale_y_continuous(breaks = seq(-0.1,0.4,0.02),
+                     labels = scales::percent) +
+  scale_x_continuous(breaks = seq(2012,2022,1)) +
+  labs(x = "Year", y = "Std Dev") +
+  theme_tq() +
+  theme(legend.position = "top") +
+  scale_fill_brewer(palette="Paired") + theme_minimal() +
+  ggtitle("Monthly Std Dev")
+ggplotly(p.6)
+```
+
+Apparently, AMD has the biggest volatility compared to other stocks while PEP showed the lowest risk among the 5 stocks. However, AMD's return was significant as the risk was high. Since AMD is a growth stock and PEP is a matured company, the outcome seems obvious.
+
+Now, we are going to verify whether the return of the stock is normally distributed and also compute the correlation of each stock.
+
+### 1-g Normal distribution and correlation
+
+```{r}
+#Verifying normal distribution
+multpl_stock_monthly_returns %>% 
+  ggplot(aes(returns)) +
+  geom_density(lwd=1) +
+  theme_tq() +
+  geom_histogram(aes(y=..density..))+
+  facet_wrap(~symbol) + xlab('return')
+```
+
+Although some data looks messy, it seems that the returns are all normally distributed, and we can expect that the return of the portfolio will be normally distributed too.
+
+```{r}
+#Computing correlation
+multpl_stock_monthly_returns %>%
+  ungroup() %>%
+  select(date,returns,symbol) %>%
+  pivot_wider(id_cols = date, names_from = 'symbol', values_from = 'returns') %>%
+  select(-date) %>%
+  ggpairs
+```
+```{r}
+multpl_stock_monthly_returns %>%
+  spread(symbol,value=returns) %>%
+  tk_xts(silent = TRUE) %>%
+  cor() %>%
+  corrplot()
+```
+
+From the data, MSFT and AMZN has the highest correlation of 0.52. Beyond that, all of the stocks have statistically weak positive correlation, which would help diversify the risk of the portfolio.
+
+# 2 Portfolio Construction (Matrix)
+
+To construct a GMV and Tangency Point portfolio, we will utilize the matrix concepts. Below is the necessary preparation to construct the portfolio.
+
+```{r}
+#Compute log daily returns
+log_ret_daily <- stocks.prices %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'daily',
+               col_rename = 'returns',
+               type = 'log')
+
+head(log_ret_daily)
+```
+
+
+```{r}
+#Convert tibble into xts
+log_ret_xts <- log_ret_daily %>%
+  spread(symbol, value = returns) %>% #Rearranging the rows and columns of the data
+  tk_xts()
+
+head(log_ret_xts)
+```
+Now, the data is converted into time series format. To utilize MPT, we have to create matrix for return and risks
+
+```{r}
+#Calculating mean return for each asset
+mean_ret <- colMeans(log_ret_xts)
+mean_ret
+```
+```{r}
+#Create variance-covariance matrix
+cov_mat <- cov(log_ret_xts)*252  #Annualize daily return 
+cov_mat
+```
+
+Below will be the basic assumptions and methodlogy we will use create efficient frontier and define tangency portfolio
+```{r}
+# Calculate the random weights
+wts <- runif(n = length(symbols))
+wts <- wts/sum(wts) # to normalize the weight into total of 1
+
+# Calculate the portfolio returns
+# Annualized the daily return 
+port_returns <- (sum(wts * mean_ret) + 1)^252 - 1
+
+# Calculate the portfolio risk
+port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts))
+
+#Define risk free rate
+risk_free <- 0.0412
+
+# Calculate the Sharpe Ratio
+sharpe_ratio <- (port_returns-risk_free)/port_risk
+```
+
+
+```{r}
+#Create random portfolios to construct the possible outcomes
+num_port <- 3000
+
+# Creating a matrix to store the weights
+
+all_wts <- matrix(nrow = num_port,
+                  ncol = length(symbols))
+
+# Creating an empty vector to store portfolio returns
+
+port_returns <- vector('numeric', length = num_port)
+
+# Creating an empty vector to store portfolio standard deviation
+
+port_risk <- vector('numeric', length = num_port)
+
+# Creating an empty vector to store portfolio Sharpe ratio
+
+sharpe_ratio <- vector('numeric', length = num_port)
+
+for (i in seq_along(port_returns)) {
+  
+  wts <- runif(length(symbols))
+  wts <- wts/sum(wts)
+  
+  # Storing weight in the matrix
+  all_wts[i,] <- wts
+  
+  # Portfolio returns
+  
+  port_ret <- sum(wts * mean_ret)
+  port_ret <- ((port_ret + 1)^252) - 1
+  
+  # Storing Portfolio Returns values
+  port_returns[i] <- port_ret
+  
+  
+  # Creating and storing portfolio risk
+  port_sd <- sqrt(t(wts) %*% (cov_mat  %*% wts))
+  port_risk[i] <- port_sd
+  
+  # Creating and storing Portfolio Sharpe Ratios
+  # Assuming 4.12% Risk free rate
+  
+  sr <- (port_ret-risk_free)/port_sd
+  sharpe_ratio[i] <- sr
+  
+}
+
+# Storing the values in the table
+portfolio_values <- tibble(Return = port_returns,
+                  Risk = port_risk,
+                  SharpeRatio = sharpe_ratio)
+
+# Converting matrix to a tibble and changing column names
+all_wts <- tk_tbl(all_wts)
+
+colnames(all_wts) <- colnames(log_ret_xts)
+portfolio_values <- tk_tbl(cbind(all_wts, portfolio_values))
+
+portfolio_values
+```
+
+Now, we will find out the GMV and tangency point portfolio. GMV will be the weights that will minimize variance while tangency portfolio will be the weights that will maximize the Sharpe ratio.
+
+```{r}
+min_var <- portfolio_values[which.min(portfolio_values$Risk),]
+max_sr <- portfolio_values[which.max(portfolio_values$SharpeRatio),]
+```
+
+```{r}
+#Compute GMV portoflio weights
+GMV <- min_var %>%
+  gather(AMD:PEP, key = Asset,
+         value = Weights) %>%
+  mutate(Asset = as.factor(Asset)) %>%
+  ggplot(aes(x = fct_reorder(Asset,Weights), y = Weights, fill = Asset)) +
+  geom_bar(stat = 'identity') +
+  theme_minimal() +
+  labs(x = 'Assets', y = 'Weights', title = "Minimum Variance Portfolio Weights") +
+  scale_y_continuous(labels = scales::percent) 
+ggplotly(GMV)
+```
+
+We can see that most of the stocks are allocated to PEP for GMV portfolio since it has the lowest risk.
+
+```{r}
+Tangency <- max_sr %>%
+  gather(AMD:PEP, key = Asset,
+         value = Weights) %>%
+  mutate(Asset = as.factor(Asset)) %>%
+  ggplot(aes(x = fct_reorder(Asset,Weights), y = Weights, fill = Asset)) +
+  geom_bar(stat = 'identity') +
+  theme_minimal() +
+  labs(x = 'Assets', y = 'Weights', title = "Tangency Portfolio Weights") +
+  scale_y_continuous(labels = scales::percent) 
+
+ggplotly(Tangency)
+```
+```{r}
+print(paste0('The Sharpe Ratio for Tangency Portfolio is:', max_sr$SharpeRatio))
+```
+
+For tangency portoflio, we can see that most of the assets are allocated to AMZN and NVDA since they both have a higher returns and higher risks. Since the Sharpe ratio = 1.69, risk free rate = 0.0412, the CAL is CAL = 0.0412 + 1.69*sigma(p)
+
+If we chart the efficient frontier, GMV, TP, and CAL it would look like:
+
+```{r}
+EF <- portfolio_values %>%
+  ggplot(aes(x = Risk, y = Return, color = SharpeRatio)) +
+  geom_point() +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = 'Annualized Risk',
+       y = 'Annualized Returns',
+       title = "Portfolio Optimization & Efficient Frontier") +
+  geom_point(aes(x = Risk,
+                 y = Return), data = min_var, color = 'red',size=3) +
+  geom_point(aes(x = Risk,
+                 y = Return), data = max_sr, color = 'red', size=3) +
+  annotate('text', x = 0.24, y = 0.60, label = "Tangency Portfolio") +
+  annotate('text', x = 0.23, y = 0.14, label = "Minimum variance portfolio") +
+  annotate('text', x = 0.40, y = 0.84, label = "Capital Allocation Line") +
+  geom_abline(aes(
+    intercept = 0.0412, 
+    slope = 1.69 
+  ))
+ggplotly(EF)
+```
+
+From the analysis, the optimum weight for AMD, AMZN, MSFT, NVDA, and PEP is 13%, 43%, 2%, 41%, and 1%. 
+
+# 3. Performance Comparison: Tangency Portfolio vs. S&P 500 (2020M1 to 2022M8)
+
+First, we will import new stock from 2020M1 to 2022M8 and then allocate each weight for the stocks. After allocating the weights, we will calculate the return of the portfolio.
+
+```{r}
+#Allocate weights for each stocks
+#Import new stock data for new analysis
+wts.tp.a <- c(0.12,0.49,0.08,0.29,0.02)
+stocks.prices.b <-  tq_get(symbols,get  = "stock.prices",from = "2020-01-01",to = "2022-8-31") %>%
+  group_by(symbol)
+
+#Compute Return for the new stock data
+multpl_stock_monthly_returns.b <- stocks.prices.b %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'returns')
+
+#Allocate the tangency portfolio weights for each stock
+port_ret_tp.b <- multpl_stock_monthly_returns.b %>%
+  tq_portfolio(assets_col = symbol,
+               returns_col = returns,
+               weights = wts.tp.a,
+               col_rename = 'port_ret_tp',
+               geometric = FALSE)
+
+head(port_ret_tp.b)
+```
+
+If we visualize the monthly returns of the portfolio, it would look like:
+```{r}
+#Visualize the monthly return of the portfolio
+port_ret_tp.b %>%
+ ggplot(aes(x = date, y = port_ret_tp)) +
+    geom_bar(stat = "identity", fill = palette_light()[[9]]) +
+    labs(title = "Portfolio Returns",
+         x = "Date", y = "Monthly Returns") +
+    theme_tq() +
+    scale_color_tq() +
+    scale_y_continuous(labels = scales::percent)
+```
+
+We can see that the portfolio has been performing until 2021 while it showed high volatility in 2022. Now, we will compare the index of S&P 500 and the portfolio.
+```{r}
+#Chart tangency portfolio index since 2020
+port_ret_tp.b %>%
+  mutate(cr = cumprod(1 + port_ret_tp)) %>%
+  ggplot(aes(x = date, y = cr*100)) +
+  geom_line(size = 2, color = palette_light()[[2]]) +
+  geom_smooth(method = 'loess')+
+  theme_tq()+
+  scale_color_tq()+
+  labs(x = 'Date',
+       y = 'Index',
+       title = 'Tangency Portoflio Index') +
+  scale_y_continuous(breaks = seq(100,300,50)) +
+  scale_x_date(date_breaks = 'year',
+               date_labels = '%Y') 
+```
+
+As we can see, the index has increased from 100 to 200, showing 100% rate of  return. Now, we will compare this index with the S&P 500.
+
+```{r}
+#Import S&P 500
+market.prices <-  tq_get("SPY",get  = "stock.prices",from = "2020-01-01",to = "2022-08-31")
+market_return <- market.prices %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'market_ret')
+
+#Chart S&P 500 Index from 100
+market_return %>%
+  mutate(cr = cumprod(1 + market_ret)) %>%
+  ggplot(aes(x = date, y = cr*100)) +
+  geom_line(size = 2, color = palette_light()[[1]]) +
+  theme_tq()+
+  scale_color_tq()+
+  geom_smooth(method = 'loess')+
+  labs(x = 'Date',
+       y = 'Index',
+       title = 'S&P 500 Index') +
+  scale_y_continuous(breaks = seq(100,200,50))
+
+```
+```{r}
+#Chart both indexes in one graph
+b <- port_ret_tp.b %>%
+  mutate(cr = (cumprod(1 + port_ret_tp))*100) %>%
+  mutate(symbol = 'TP')
+b <- subset(b,select = -c(port_ret_tp))
+c <- market_return %>%
+  mutate(cr = (cumprod(1 + market_ret))*100) %>%
+  mutate(symbol = 'Market')
+c <- subset(c,select = -c(market_ret))
+bc <- rbind(b,c)
+p.7 <- bc %>%
+  ggplot(aes(x=date,y=cr,color=symbol))+
+  geom_line(size=2) +
+  xlab('Date')+
+  ylab('Index')+
+  theme_tq()+
+  scale_color_tq()+
+  ggtitle("Portfolio vs S&P 500")
+ggplotly(p.7)
+
+```
+
+According to the outcome, the portfolio index has approximately doubled while the S&P 500 ended up showing 40% increase.
+
+
+# 4. CAPM Application
+
+### a.SML
+
+According to the Modern Portfolio Theory (MPT), the expected return of an asset should be the following: Ra = Rf + (Beta*Risk premium) where Ra refers to return of the asset and Rf refers to risk-free rate. Since we need to build the Security market line of portfolio, we will use the 10yr bond yield as the risk-free rate.
+
+To build a SML, we need 1. Portfolio Return 2. Market Return 3. Risk-Free Rate. Since we have the portfolio return and market return data, we will have to prepare for the risk-free rate data.
+
+```{r}
+#Import Risk-Free rate data
+getSymbols("^TNX", 
+           src = 'yahoo', 
+           from = "2020-01-01", 
+           to = "2022-08-31",
+           auto.assign = TRUE,
+           warnings = FALSE)
+head(TNX)
+```
+
+Since we are dealing with monthly return data, we are going to change the data structure into monthly data for computation purpose. Also, remember that we have to divide the risk-free rate by 12 since we are dealing with monthly data and going to calculate monthly expected return from the CAPM model.
+
+```{r}
+#Convert into monthly value
+TNX <- TNX %>%
+  to.monthly()
+TNX <- TNX[,6]
+head(TNX)
+```
+```{r}
+#Converting into tibble
+TNX <- as.tibble(TNX)
+#Converting risk free rate into percentage and change column name
+TNX <- TNX %>%
+  mutate(rf = ..Adjusted/100)
+TNX <- TNX %>%
+  subset(select = -c(..Adjusted))
+#Divide the risk free rate by 12 
+TNX$rf <- TNX$rf/12
+TNX
+```
+
+Now we have the risk-free date data and we are going to create a new tibble that contains all the 3 essential information.
+
+```{r}
+#Merge all the data
+SML <- cbind(port_ret_tp.b,market_return,TNX)
+
+#Drop one date column since it's duplicated
+SML <- subset(SML,select = -c(date))
+SML <- SML %>%
+      relocate(date)
+SML <- as.tibble(SML)
+```
+
+Now, we have to create a new column for market risk premium which equals to market return - risk free rate
+
+```{r}
+#Compute risk premium
+SML <- SML %>%
+  mutate(risk_premium = market_ret - rf)
+head(SML)
+```
+
+Remember that Security Market Line : E(R) = Beta*Risk premium + Rf.
+
+```{r}
+A_rp <- mean(SML$market_ret) - mean(SML$rf) # Average monthly market risk premium
+
+Ex_Beta <- tibble(Beta=seq(0,2,length.out=32), Ex_ret = (A_rp*Beta)+mean(SML$rf))
+head(Ex_Beta) # Tibble showing relationship between expected return and beta
+```
+
+
+```{r}
+#Plot SML (monthly expected return)
+p.15 <- Ex_Beta %>%
+  ggplot(aes(y = Ex_ret, x = Beta)) + 
+  geom_point(col='cornflowerblue', size=4) +
+  xlab('Beta') + 
+  ylab('Expected Return') + 
+  geom_point(aes(x =1.25,  
+                   y = mean(SML$port_ret_tp)), 
+               color = "red", 
+               size = 4) +
+    annotate('text',x = 1.45, 
+          y = mean(SML$port_ret_tp),label='Portfolio',size=5)+ 
+  annotate('text',x = 1.7, y = 0.01,
+          label = "Security Market Line",size=5) +
+  ggtitle('Security Market Line (Monthly Basis)') + 
+  theme_tq()+
+  scale_y_continuous(labels = scales::percent)
+ggplotly(p.15)
+
+```
+
+The Security Market Line shows that our monthly return for the portfolio considering the Beta should be approximately 1.2%. However, our portfolio's average monthly return is about 2.3% which means that our portfolio is performing well than the market.
+
+
+### b.Risk Premium and Portfolio Return
+
+Now, we will look at how the risk premium and portfolio return were related
+
+```{r}
+ggplot(data = SML, aes(y = port_ret_tp, x = risk_premium)) + 
+  geom_point(col='cornflowerblue', size=4) +
+  xlab('Risk Premium') + 
+  ylab('Portfolio Return') + 
+  ggtitle('Portfolio Return & Risk Premium') + 
+  geom_smooth(method='lm', color = 'darkviolet', size =0.8) +
+theme_tq()+
+  scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(labels = scales::percent)
+```
+```{r}
+summary(lm(SML$port_ret_tp~SML$risk_premium))
+```
+
+From the result above, we can see that the higher the risk premium, the higher the return of the portfolio. Since the p-value fore the risk_premium was lower than 0.05, the correlation between risk_premium and portfolio return is valid.
+
+### c. Beta of Portfolio
+
+Now, we are going to calculate the beta of our portfolio and compare the relationship between portfolio returns and market returns.
+
+First, we are going to scatter plot the risk & return of the market, portfolio,
+and each stock to see the overall performance 
+
+```{r}
+#Merge market return and individual stock returns
+spy_multpl_monthly_return <- market_return %>%
+  mutate(symbol = 'SPY',
+         returns = market_ret) %>%
+  relocate(symbol) %>%
+  subset(select = -c(market_ret)) %>%
+  rbind(multpl_stock_monthly_returns.b)
+
+
+p.8 <- spy_multpl_monthly_return %>% 
+    group_by(symbol) %>% 
+    summarise(expected_return = mean(returns),
+              stand_dev = sd(returns)) %>% 
+    ggplot(aes(x = stand_dev, y = expected_return, color = symbol)) +
+    geom_point(size = 4) +
+    geom_point(aes(x = sd(port_ret_tp.b$port_ret_tp),  
+                   y = mean(port_ret_tp.b$port_ret_tp)), 
+               color = "cornflowerblue", 
+               size = 5) +
+    geom_text(
+      aes(x = sd(port_ret_tp.b$port_ret_tp) * 1.09, 
+          y = mean(port_ret_tp.b$port_ret_tp), 
+          label = "Portfolio")) +
+  geom_text(
+    aes(x= sd(market_return$market_ret) *1.14,
+        y= mean(market_return$market_ret), label = 'Market'
+  )) +
+    ylab("expected return") +
+    xlab("standard deviation") +
+    ggtitle("Expected Monthly Returns v. Risk") +
+  theme_tq()+
+    scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(labels = scales::percent)
+ggplotly(p.8)
+```
+
+From the scatter plot, it is apparent that our portfolio has lower risk but higher risk than investing in AMZN due to the asset distribution effect.
+
+Since we saw our portfolio risk & return, we are going to calculate the Beta, which indicates the volatility compared to S&P 500.
+
+Refer that the formula for computing beta is :
+{beta}_{portfolio} = cov(R_p, R_m)/sigma_m)
+Or it is the slope of the regression line between market return and portfolio return
+
+```{r}
+#Compute Beta #1
+Beta_port <- cov(port_ret_tp.b$port_ret_tp,market_return$market_ret)/
+  var(market_return$market_ret)
+Beta_port
+```
+
+```{r}
+port_ret_tp.b %>% 
+    mutate(market_returns = market_return$market_ret) %>% 
+    ggplot(aes(x = market_returns, y = port_ret_tp)) +
+    geom_point(size=4)+
+    geom_point(color = "cornflowerblue",size = 3) +
+    geom_smooth(method = "lm", se = FALSE, color = "red", size = 1) +
+    ylab("portfolio returns") +
+    xlab("market returns") +
+    ggtitle("Regression Line of CAPM") +
+  scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(labels = scales::percent) 
+```
+
+
+```{r}
+#Compute Beta #2
+summary(lm(SML$port_ret_tp~SML$market_ret))
+```
+
+We can see that the Beta of the portfolio using both methods give the same figure. The beta of the portfolio 1.25, meaning that it is 25% more volatile than the market. This figure is valid since the p value of the slope is lower than 0.05.
+
+
+# 5. Affect of Covid on Jensen Alpha & Market Risk
+
+Jensen alpha is the difference between actual return and expected return from the CAPM model. First we will look at the Jensen Alpha from 2020 to 2022
+```{r}
+SML$expected_return = SML$rf + SML$risk_premium * Beta_port
+SML$Alpha = SML$port_ret_tp - SML$expected_return
+datatable(SML)
+```
+
+```{r}
+ggplot(data = SML, aes(x=date, y= Alpha)) + 
+  geom_point(col='darkseagreen', size=4) +
+  xlab('Date') + 
+  ylab('Jensen Alpha') + 
+  geom_smooth()+
+  theme_tq()+
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_date(date_breaks="3 months", date_labels="%Y-%m")+
+  annotate(geom = 'text',y=0.16,x=as.Date('2020-05-30'),label = 'COVID',color=c('#9900CC'),size=4.5) +
+  annotate(geom = 'text',y=0.09,x=as.Date('2020-09-30'),label = 'Reopen',color=c('#9900CC'),size=4.5) +
+  ggtitle('Monthly Jensen Alpha')  
+```
+
+To measure whether shutdown due to COVID 19 has impacted the Jensen alpha and market risk, we will define the shut down period from March to June. Then we will have to implement regression using dummy variables in which shut down period will be 1 and non-shut down period will be 0
+
+```{r}
+#Create list to define the status of US business economy
+jan_feb <- rep('Open',2) 
+march_june <- rep('Closed',4)
+rest <- rep('Open',26)
+
+#Create tibble for new regression
+Regression <- tibble(date = SML$date, 
+                     Alpha = SML$port_ret_tp,
+                     Risk_premium = SML$Alpha,
+                     Status = c(jan_feb,march_june,rest))
+
+head(Regression)
+```
+
+```{r}
+#Create dummy variable
+Dummy <- ifelse(Regression$Status == 'Closed', 1,0)
+Regression_d <- tibble(date = SML$date, 
+                     Alpha = SML$Alpha,
+                     Risk_premium = SML$risk_premium,
+                     Covid = Dummy)
+datatable(Regression_d)
+```
+
+Here, we can see that dummy variable 1 is applied from M3 to M6 when the business was closed while 0 was applied to rest of the data. The outcome of the regression is the following:
+
+```{r}
+covid <- lm(data=Regression_d, Alpha ~ Risk_premium + Covid)
+summary(covid)
+```
+
+From the regression result, we see that the p-value of Covid is higher than 0.05 which means that the economy shut down didn't statistically affect the Alpha return significantly. Also, the p-value of the risk premium is higher than 0.05 so there wasn't statistical effect on market risk.
+
+
+# 6. Portfolio Comparison #1: CV, Sharpe, Treynor, Sortino Ratio
+
+SOXX, which is a semiconductor ETF managed by Black Rock, was utilized to compare different statistics to the portfolio since it had a similar; the Beta for the portfolio was 1.25 while the Beta for SOXX was 1.28. 
+
+### A.Portoflio
+1.CV of portoflio: SIGMA/MEAN
+```{r}
+#Calculate CV
+CV_p <- sd(port_ret_tp.b$port_ret_tp)/mean(port_ret_tp.b$port_ret_tp)
+CV_p
+```
+2. Sharpe Ratio of portfolio: (Rm-Rf)/SIGMA
+```{r}
+SR_p <- (mean(port_ret_tp.b$port_ret_tp+1)^(32*12/36)-1-risk_free)/sd(port_ret_tp.b$port_ret_tp)
+SR_p
+```
+3. Treynor Ratio: (MEAN - R)/Beta
+```{r}
+TR_p <- (mean(port_ret_tp.b$port_ret_tp+1)^(32*12/36)-1-risk_free)/Beta_port
+TR_p
+```
+4. Sortino Ratio
+```{r}
+SO_p <- SortinoRatio(port_ret_tp.b$port_ret_tp)
+SO_p
+```
+
+To compare with the portfolio, we will import ETF that has a similar beta to the portfolio
+```{r}
+#Download BlackRock's semiconductor ETF
+SOXX <-  tq_get('SOXX',get  = "stock.prices",from = "2020-01-01",
+                           to = "2022-08-31") %>%
+group_by(symbol)
+
+SOXX_return <- SOXX %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'returns',
+               method = 'log')
+head(SOXX_return)
+```
+
+### B. SOXX 
+
+1.CV of SOXX: SIGMA/MEAN
+```{r}
+CV_SOXX <- sd(SOXX_return$returns)/mean(SOXX_return$returns)
+CV_SOXX
+```
+2. Sharpe Ratio of portfolio: (Rm-Rf)/SIGMA
+```{r}
+SR_SOXX <- (mean(SOXX_return$returns+1)^(32*12/36)-1-risk_free)/sd(SOXX_return$returns)
+SR_SOXX
+```
+3. Treynor Ratio: (MEAN - R)/Beta
+```{r}
+Beta_SOXX <- cov(SOXX_return$returns,market_return$market_ret)/
+  var(market_return$market_ret)
+TR_SOXX <- (mean(SOXX_return$returns+1)^(32*12/36)-1-risk_free)/Beta_SOXX
+TR_SOXX
+```
+
+4. Sortino Ratio
+```{r}
+SO_SOXX <- SortinoRatio(SOXX_return$returns)
+SO_SOXX
+```
+
+If we create a tibble and a graph to see the difference more clearly....
+```{r}
+P_SOXX <- tibble(
+  Symbol = c('Portoflio','Portoflio','Portoflio','Portoflio','SOXX','SOXX','SOXX','SOXX'),
+  Statistics = c('CV','Sharpe','Treynor','Sortino','CV','Sharpe','Treynor','Sortino'),
+           Values = c(CV_p,SR_p,TR_p,SO_p,CV_SOXX,SR_SOXX,TR_SOXX,SO_SOXX)) 
+P_SOXX
+```
+```{r}
+P__SOXX_1 <- P_SOXX%>%
+  ggplot(aes(x = Statistics, y = Values, fill = Symbol)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  labs(x = "Statistics", y = "Values") +
+  theme_tq() +
+  theme(legend.position = "top") +
+  scale_fill_manual(values=c("#E69F00", "#56B4E9"))+
+  ggtitle("Different Statistics Results")
+ggplotly(P__SOXX_1)
+```
+Except for the Co-efficient of variation (CV), the portfolio showed a higher Sharpe, Sortino, and Treynor ratio from 2020 M1 to 2022 M8.
+
+# 7. Portfolio Comparison #2: VaR (2%)
+
+Since VaR is calculating the density of the qunatile, we will use qnorm function to compute the 1 month, six months, and one year VaR. 
+```{r}
+#Setting one month VaR Values
+alpha=0.02
+mu_onemonths <- mean(port_ret_tp.b$port_ret_tp)
+sd_onemonths <- sd(port_ret_tp.b$port_ret_tp)
+VaR_Port_one <- qnorm(alpha, mean = mu_onemonths, sd = sd_onemonths)
+VaR_Port_one
+```
+
+The result implicates that about 2% of the time, the expected return of the portfolio could be worse than -18.6%. Now we will calculate all the 6 months VaR, 1year VaR.
+
+
+```{r}
+#Setting 6 months VaR Values
+mu_sixmonths <- mean(port_ret_tp.b$port_ret_tp)*6
+sd_sixmonths <- sd(port_ret_tp.b$port_ret_tp)*sqrt(6)
+VaR_Port_six <- qnorm(alpha, mean = mu_sixmonths, sd = sd_sixmonths)
+
+#Setting 1 year VaR Values
+mu_year <- mean(port_ret_tp.b$port_ret_tp)*12
+sd_year <- sd(port_ret_tp.b$port_ret_tp)*sqrt(12)
+VaR_Port_year <- qnorm(alpha, mean = mu_year, sd = sd_year)
+```
+
+We are going to do the same process for the ETF we imported at Q#6.
+
+```{r}
+#Setting one month VaR for SOXX
+mu_onemonths_SOXX <- mean(SOXX_return$returns)
+sd_onemonths_SOXX <- sd(SOXX_return$returns)
+SOXX_Port_one <- qnorm(alpha, mean = mu_onemonths_SOXX, sd = sd_onemonths_SOXX)
+
+#Setting six month VaR for SOXX
+mu_sixmonths_SOXX <- mean(SOXX_return$returns)*6
+sd_sixmonths_SOXX <- sd(SOXX_return$returns)*sqrt(6)
+VaR_SOXX_six <- qnorm(alpha, mean = mu_sixmonths_SOXX, sd = sd_sixmonths_SOXX)
+
+#Setting one year VaR for SOXX
+mu_year_SOXX <- mean(SOXX_return$returns)*12
+sd_year_SOXX <- sd(SOXX_return$returns)*sqrt(12)
+VaR_SOXX_year <- qnorm(alpha, mean = mu_year_SOXX, sd = sd_year_SOXX)
+
+```
+
+Since we have the different VaR results for the portoflio and SOXX, we are going to visualize it to see the difference more clearly.
+
+```{r}
+VaR_P_SOXX <- tibble(
+  Symbol = c('Portoflio','Portoflio','Portoflio','SOXX','SOXX','SOXX'),
+  Statistics = c('30_VaR','180_VaR','365_VaR','30_VaR','180_VaR','365_VaR'),
+           Values = abs(c(VaR_Port_one,VaR_Port_six,VaR_Port_year,SOXX_Port_one,VaR_SOXX_six,VaR_SOXX_year)))
+VaR_P_SOXX
+```
+```{r}
+P__SOXX_2 <- VaR_P_SOXX%>%
+  mutate(Statistics = fct_reorder(Statistics,Values)) %>% # For reoredring data
+  ggplot(aes(x = Statistics, y = Values, fill = Symbol)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  labs(x = "VaR", y = "Values") +
+  theme_tq() +
+  theme(legend.position = "top") +
+  scale_fill_brewer(palette="Pastel1") + theme_minimal()+
+  scale_y_continuous(labels = scales::percent)+
+  ggtitle("VaR: Portoflio vs. SOXX")
+ggplotly(P__SOXX_2)
+```
+
+Calculating 2% VaR indicates that 2% of the time, the return of an asset could be below certain percentage.  For instance, the 30-month 2% VaR of portfolio return was 18%, which means that the portfolio could lose 18% of return in one month by 2% while 98% of time the return would be higher than negative 18%, To summarize the data, the VaR of the portfolio was higher than that of the ETF, and it has a chance of losing over 40% of return in 1 year.
+
+
+# 8. CAPM Application #2: Market returns & Portfolio Return
+```{r}
+port_ret_tp.b %>% 
+    mutate(market_returns = market_return$market_ret) %>% 
+    ggplot(aes(x = market_returns, y = port_ret_tp)) +
+    geom_point(size=4)+
+    geom_point(color = "cornflowerblue",size = 3) +
+    geom_smooth(method = "lm", se = FALSE, color = "red", size = 1) +
+    ylab("portfolio returns") +
+    xlab("market returns") +
+    ggtitle("Regression Line of CAPM") +
+  theme_tq()+
+  annotate('text', x= 0.1,y=-0.1, label = 'Y=1.25X+0.01(t=0.95)',size=5)+
+  scale_y_continuous(labels = scales::percent) +
+    scale_x_continuous(labels = scales::percent) 
+```
+```{r}
+summary(lm(SML$port_ret_tp~SML$market_ret))
+```
+
+# 9. Ex-Post Forecasting
+
+```{r}
+x <- SML$risk_premium # This should x axis
+y <- SML$port_ret_tp # This should be y axis
+data <- data.frame(y,x)
+data1 <- data[1:30,]
+data2 <- data[31:32,]
+reg <- lm(y~x, data= data1)
+pred <- predict(reg, newdata = data2, se.fit = TRUE)
+```
+```{r}
+Expost_fit <- reg$fitted.values
+Expost_fit[31:32]=NA
+EXPOST <- tibble(date=SML$date,return=SML$port_ret_tp,symbol='Actual')
+EXPOST1 <- tibble(date = SML$date,return = Expost_fit, symbol = 'Ex_Post')
+EXPOST2 <- rbind(EXPOST,EXPOST1)
+
+p.11 <- na.omit(EXPOST2) %>%
+  ggplot(aes(x=date,y=return,color=symbol)) +
+  geom_line(stat='identity') +
+  geom_line(size=1.5) +
+  xlab('Date') +
+  ylab('Portoflio Return') +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_date(date_breaks="6 months", date_labels="%Y-%m")+
+  scale_color_manual(values=c("#E69F00", "#56B4E9"))+
+  ggtitle('Actual vs Ex-Post Forecast')
+ggplotly(p.11)
+```
+```{r}
+mae_post <- mae(c(EXPOST$return[1:30]),c(na.omit(EXPOST1$return)))*100
+mape_post <- mape(c(EXPOST$return[1:30]),c(na.omit(EXPOST1$return)))
+rmse_post <- rmse(c(EXPOST$return[1:30]),c(na.omit(EXPOST1$return)))*100
+mase_post <- mase(c(EXPOST$return[1:30]),c(na.omit(EXPOST1$return)))*100
+Results_post <- tibble(Method = c('EX_POST_F'),
+       MAE = c(mae_post),
+       MAPE = c(mape_post),
+       RMSE = c(rmse_post),
+       MASE = c(mase_post))
+
+datatable(Results_post)
+```
+
+# 10. Ex-Ante Forecasting
+
+```{r}
+#Return = Beta * Risk Premium
+reg2 <- lm(y~x, data=data)
+fore <- forecast(reg2, newdata = data.frame(x=c(0.05,0.11)),se,fit=TRUE)
+fore
+```
+
+The data above shows the expected return of M9 and M10. Assuming that the risk premium for S&P 500 index was 1.1% and 0.5% in 2022 M9 and M10, the expected monthly portfolio return was respectively 15% and 7%.  
+
+```{r}
+#Graph ex-ante forecast
+autoplot(fore) +
+  theme_gray()+
+  labs(title='Ex-Ante Forecast',x='Risk Premium',y='Portoflio Return')+
+  scale_y_continuous(labels = scales::percent)+
+  scale_x_continuous(labels = scales::percent) 
+```
+
+# 11. Naïve, Moving average, Simple exponential smoothing
+
+```{r}
+#Compute stock return from 2022 M1 to 2022 M10
+stocks.prices.c <-  tq_get(symbols,get  = "stock.prices",from = "2021-01-01",to = "2022-10-31") %>% group_by(symbol)
+multpl_stock_monthly_returns.c <- stocks.prices.c %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'returns')
+
+port_ret_tp.c <- multpl_stock_monthly_returns.c %>%
+  tq_portfolio(assets_col = symbol,
+               returns_col = returns,
+               weights = wts.tp.a,
+               col_rename = 'port_ret_tp',
+               geometric = FALSE)
+
+#Create New Index form 2021 to 2022
+Port_Index <- port_ret_tp.c %>%
+  mutate(Index = cumprod(1 + port_ret_tp)*100,
+         symbol = 'Portfolio') %>%
+  subset(select = -c(port_ret_tp))
+  
+Port_Index %>%
+  ggplot(aes(x = date, y = Index)) +
+  geom_line() +
+  labs(x = 'Date',
+       y = 'Index',
+       title = 'Tangency Portoflio Index from 2021 to 2022') +
+  scale_y_continuous(breaks = seq(40,140,20)) 
+
+```
+
+```{r}
+#Generate naive forecast
+naive <- c(NA, Port_Index$Index[-length(Port_Index$Index)])
+naive
+Naive_df <- tibble(date=Port_Index$date,
+       Index = naive,
+       symbol = 'Naive')
+
+```
+
+```{r}
+#Plot Naive Forecast
+Naive_Port_Index <- rbind(Port_Index,Naive_df)
+p.12 <- na.omit(Naive_Port_Index) %>%
+  ggplot(aes(x=date,y=Index,color=symbol))+
+  geom_line(size=1.5) +
+  ggtitle("Actual & Naive Forecast")
+ggplotly(p.12)
+```
+```{r}
+#Compute measure statistics for naive forecast 
+mae_naive <- mae(c(Port_Index$Index[-1]),c(na.omit(Naive_df$Index)))
+mape_naive <- mape(c(Port_Index$Index[-1]),c(na.omit(Naive_df$Index)))*100
+rmse_naive <- rmse(c(Port_Index$Index[-1]),c(na.omit(Naive_df$Index)))
+mase_naive <- mase(c(Port_Index$Index[-1]),c(na.omit(Naive_df$Index)))
+```
+
+
+
+```{r}
+#Plot MA(15) of the Index
+Port_Index %>%
+  ggplot(aes(x = date, y = Index)) +
+  geom_line(color='cornflowerblue',size=1) +
+  labs(x = 'Date',
+       y = 'Index',
+       title = 'Tangency Portoflio Index MA(15)') +
+  scale_y_continuous(breaks = seq(40,140,20)) +
+  geom_ma(ma_fun = SMA, n = 15,color='red',size = 1.4) 
+```
+```{r}
+MA_Port <- SMA(Port_Index$Index,15)
+```
+
+```{r}
+Port_Index$Index[15:22]
+
+mae_ma15 <- mae(c(Port_Index$Index[15:22]),c(na.omit(MA_Port)))
+mape_ma15 <- mape(c(Port_Index$Index[15:22]),c(na.omit(MA_Port)))*100
+rmse_ma15 <- rmse(c(Port_Index$Index[15:22]),c(na.omit(MA_Port)))
+mase_ma15 <- mase(c(Port_Index$Index[15:22]),c(na.omit(MA_Port)))
+
+```
+
+```{r}
+#Exponential Smoothing
+Port_Index_xts <- Port_Index %>%
+  tk_xts()
+fit1 <- ses(Port_Index_xts, alpha=0.2, initial="simple", h=3)
+fit2 <- ses(Port_Index_xts, alpha=0.6, initial="simple", h=3)
+fit3 <- ses(Port_Index_xts, h=3)
+
+autoplot(fit1) +
+    autolayer(fitted(fit1),size = 1.2, series = 'Alpha = 0.2')+
+    autolayer(fitted(fit2), size = 1.2,series = 'Alpha = 0.6')+
+    autolayer(fitted(fit3), size = 1.2,series = 'Alpha = 0.814')+
+    autolayer(fit1$mean, color = 'red',size = 1.2) +
+    autolayer(fit2$mean, color = 'green',size =1.2) +
+    autolayer(fit3$mean, color = 'orange', size = 1.2)+
+    theme_minimal()+
+    ylab('Index')
+```
+```{r}
+mae_exp <- mae(c(Port_Index$Index),c(fit3[["fitted"]]))
+mape_exp <- mape(c(Port_Index$Index),c(fit3[["fitted"]]))*100
+rmse_exp <- rmse(c(Port_Index$Index),c(fit3[["fitted"]]))
+mase_exp <- mase(c(Port_Index$Index),c(fit3[["fitted"]]))
+```
+
+```{r}
+Results <- tibble(Method = c('Naive','MA(15)','Exponential'),
+       MAE = c(mae_naive,mae_ma15,mae_exp),
+       MAPE = c(mape_naive,mape_ma15,mape_exp),
+       RMSE = c(rmse_naive,rmse_ma15,rmse_exp),
+       MASE = c(mase_naive,mase_ma15,mase_exp))
+
+datatable(Results)
+```
+
+All of the Statistics tell that Exponential Smoothing method had the lowest error and MA(15) had the highest error measure.
+
+----------------------------------------------------------------------------------------------
+
+# Appendix
+
+From here, We are going to implement some codes just for fun. First we are going to use the PerformanceAnalytics package to find optimal weights for GMV portfolio. However, we are going to allocate at least 10% of weight to each stock and constraint the maximum weight to 40%.
+
+```{r}
+#Using Performance Analytics library to implement efficient frointer
+#Changing data into xts
+returns <- multpl_stock_monthly_returns.b %>%
+  select(symbol,date,returns) %>%
+  pivot_wider(names_from = symbol, values_from = returns) %>%
+  tk_xts(silent = TRUE) * 100
+returns
+
+p <- portfolio.spec(colnames(returns))
+p.long <- p %>% add.constraint(type='long_only')
+
+p.box.mvp <- p.long %>%
+  add.constraint(type='full_investment') %>%
+  add.objective(type='risk',name='StdDev',risk_aversion = 9999) %>%
+  add.objective(type='return',name='mean') %>%
+  add.constraint(type='box', min=0.1,max=0.4)
+
+M.box.mvp <- optimize.portfolio(returns, p.box.mvp, optimize_method  = 'ROI', 
+                            trace = TRUE)
+
+
+Eff <- extractEfficientFrontier(M.box.mvp, match.col = "StdDev", n.portfolios = 50,
+                               risk_aversion = NULL)
+
+chart.Weights(M.box.mvp,plot.type = 'barplot')
+```
+
+By utilizing Box constraints, we found out that the weights of the assets are w = (0.1,0.1,0.3,0.1,0.4). Now we are going to compare the performance of the portfolio utilizing the new weights
+
+
+```{r}
+stocks.prices.c <-  tq_get(symbols,get  = "stock.prices",from = "2020-01-01",to = "2022-8-31") %>%
+  group_by(symbol)
+
+multpl_stock_monthly_returns.c <- stocks.prices.c %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'returns')
+multpl_stock_monthly_returns.c
+```
+
+```{r}
+wts.gmv <- c(0.1,0.1,0.3,0.1,0.4)
+port_ret_tp.c <- multpl_stock_monthly_returns.c %>%
+  tq_portfolio(assets_col = symbol,
+               returns_col = returns,
+               weights = wts.gmv,
+               col_rename = 'port_ret_GMV',
+               geometric = FALSE)
+port_ret_tp.c %>%
+  mutate(cr = cumprod(1 + port_ret_GMV)) %>%
+  ggplot(aes(x = date, y = cr*100)) +
+  geom_line() +
+  labs(x = 'Date',
+       y = 'Index',
+       title = 'GMV Portoflio Index') +
+  scale_y_continuous(breaks = seq(100,300,50)) +
+  scale_x_date(date_breaks = 'year',
+               date_labels = '%Y')
+```
+
+
+```{r}
+market.prices <-  tq_get("SPY",get  = "stock.prices",from = "2020-01-01",to = "2022-08-31")
+market_return <- market.prices %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = 'monthly',
+               col_rename = 'market_ret')
+
+#Chart S&P 500 Index from 100
+market_return %>%
+  mutate(cr = cumprod(1 + market_ret)) %>%
+  ggplot(aes(x = date, y = cr*100)) +
+  geom_line() +
+  labs(x = 'Date',
+       y = 'Index',
+       title = 'S&P 500 Index') +
+  scale_y_continuous(breaks = seq(100,200,50)) +
+  scale_x_date(date_breaks = 'year',
+               date_labels = '%Y')
+```
+
+```{r}
+b.a <- port_ret_tp.c %>%
+  mutate(cr = (cumprod(1 + port_ret_GMV))*100) %>%
+  mutate(symbol = 'GMV')
+b.a <- subset(b.a,select = -c(port_ret_GMV))
+
+bc.a <- rbind(b.a,c)
+p.13 <- bc.a %>%
+  ggplot(aes(x=date,y=cr,color=symbol))+
+  geom_line() +
+  xlab('Date')+
+  ylab('Index')+
+  ggtitle("New Portfolio vs S&P 500")
+ggplotly(p.13)
+```
+
+Now, we are going to implement a two-sample mean test and varaince analysis to find whether the risk and return of portfolio and S&P 500 is indifferent or not.
+
+```{r}
+axcx <- left_join(market_return,port_ret_tp.c, by='date') %>%
+  tk_xts()
+
+#ANOVA 
+var.test(x=market_return$market_ret,y=port_ret_tp.c$port_ret_GMV, conf.level = 0.95)
+```
+```{r}
+t.test(x=market_return$market_ret,y=port_ret_tp.c$port_ret_GMV, conf.level = 0.95)
+```
+
+Unfortunately, there wasn't any statistical difference in risk & return in investing in two different assets; thus investing in GMV portfolio is statistically same as investing in S&P 500 index
+
+`
+
