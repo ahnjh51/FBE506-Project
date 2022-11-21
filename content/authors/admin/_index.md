@@ -3,27 +3,27 @@ bio: My research interests include distributed robotics, mobile computing and pr
   matter.
 education:
   courses:
-  - course: PhD in Artificial Intelligence
-    institution: Stanford University
-    year: 2012
-  - course: MEng in Artificial Intelligence
-    institution: Massachusetts Institute of Technology
-    year: 2009
-  - course: BSc in Artificial Intelligence
-    institution: Massachusetts Institute of Technology
-    year: 2008
-email: ""
-first_name: Alice
+  - course: MS in Finance
+    institution: University of Southern California
+    year: 2023 
+  - course: BSc in Finance and Accounting Management
+    institution: Northeastern University
+    year: 2022
+  - course: BSc in Economics
+    institution: Soongsil University
+    year: 2020
+email: "ahnjaehy@marshall.usc.edu"
+first_name: Jaehyun (Jay)
 highlight_name: true
 interests:
-- Artificial Intelligence
-- Computational Linguistics
-- Information Retrieval
-last_name: Bighetti
+- Portfolio Management
+- Quantiative Finance
+- Risk Analysis
+last_name: Ahn
 organizations:
-- name: Stanford University
-  url: https://www.stanford.edu/
-role: Professor of Artificial Intelligence
+- name: University of Southern California
+  url: https://www.usc.edu/
+role: Graduate Student
 social:
 - icon: envelope
   icon_pack: fas
@@ -42,13 +42,11 @@ social:
   link: https://github.com/gcushen
 - icon: linkedin
   icon_pack: fab
-  link: https://www.linkedin.com/
+  link: https://www.linkedin.com/in/jaehyun-ahn-b5aab9228/
 superuser: true
-title: Alice Bighetti 吳恩達
+title: Jaehyun(Jay) Ahn 
 ---
 
-Alice Bighetti is a professor of artificial intelligence at the Stanford AI Lab. Her research interests include distributed robotics, mobile computing and programmable matter. She leads the Robotic Neurobiology group, which develops self-reconfiguring robots, systems of self-organizing robots, and mobile sensor networks.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed neque elit, tristique placerat feugiat ac, facilisis vitae arcu. Proin eget egestas augue. Praesent ut sem nec arcu pellentesque aliquet. Duis dapibus diam vel metus tempus vulputate.
+Hello, my name is Jay and I'm from South Korea. I'm currently pursuing a master's degree in finance at USC. My interests include portfolio management, quantitative finance, and risk analysis. I will be posting several projects that I am working on during my graduate study in this website
 
 {{< icon name="download" pack="fas" >}} Download my {{< staticref "uploads/demo_resume.pdf" "newtab" >}}resumé{{< /staticref >}}.
